@@ -1,0 +1,11 @@
+FROM jenkins/jenkins:lts-jdk21
+
+USER root
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends docker.io git python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY ci/jenkins-init.groovy /usr/share/jenkins/ref/init.groovy.d/jenkins-init.groovy
+
+USER jenkins
+RUN jenkins-plugin-cli --plugins workflow-aggregator git pipeline-stage-view
