@@ -1,0 +1,74 @@
+name: Jenkins Pipeline Execution Evidence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Jenkinsfile
+      - ci/Jenkins.Dockerfile
+      - ci/jenkins-init.groovy
+      - .github/workflows/jenkins-evidence.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  run-jenkins-pipeline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build Jenkins evidence controller
+        run: docker build --file ci/Jenkins.Dockerfile --tag aceest-jenkins-evidence:latest .
+
+      - name: Start Jenkins and run committed pipeline
+        run: |
+          JENKINS_EVIDENCE_PASSWORD="$(openssl rand -hex 24)"
+          docker run --detach --name aceest-jenkins-evidence \
+            --network host \
+            --group-add "$(stat -c %g /var/run/docker.sock)" \
+            --volume /var/run/docker.sock:/var/run/docker.sock \
+            --env JENKINS_EVIDENCE_PASSWORD="$JENKINS_EVIDENCE_PASSWORD" \
+            --env JAVA_OPTS="-Djenkins.install.runSetupWizard=false" \
+            aceest-jenkins-evidence:latest \
+            --httpListenAddress=127.0.0.1 --httpPort=8080
+
+      - name: Wait for Jenkins build result
+        run: |
+          set -e
+          for attempt in $(seq 1 180); do
+            if curl --fail --silent http://127.0.0.1:8080/job/ACEest-Fitness-DevOps/1/api/json -o jenkins-build.json; then
+              if jq -e '.building == false and .result != null' jenkins-build.json >/dev/null; then
+                break
+              fi
+            fi
+            sleep 5
+          done
+          test -s jenkins-build.json
+          curl --fail --silent http://127.0.0.1:8080/job/ACEest-Fitness-DevOps/1/consoleText -o jenkins-console.txt
+          jq '{number, result, building, url, duration}' jenkins-build.json
+          test "$(jq -r '.result' jenkins-build.json)" = SUCCESS
+
+      - name: Capture actual Jenkins build page
+        if: always()
+        run: |
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage \
+            --hide-scrollbars --window-size=1440,1000 --virtual-time-budget=5000 \
+            --screenshot=jenkins-execution.png \
+            http://127.0.0.1:8080/job/ACEest-Fitness-DevOps/1/ || true
+          docker logs aceest-jenkins-evidence > jenkins-controller.log 2>&1 || true
+
+      - name: Upload Jenkins execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jenkins-execution-evidence
+          path: |
+            jenkins-execution.png
+            jenkins-build.json
+            jenkins-console.txt
+            jenkins-controller.log
+          if-no-files-found: warn
