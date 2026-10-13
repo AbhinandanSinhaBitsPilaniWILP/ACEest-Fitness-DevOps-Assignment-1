@@ -2,7 +2,7 @@ FROM jenkins/jenkins:lts-jdk21
 
 USER root
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends docker.io git python3 python3-venv \
+    && apt-get install --yes --no-install-recommends docker-cli docker-buildx git python3 python3-venv \
     && rm -rf /var/lib/apt/lists/*
 RUN command -v docker && docker --version
 
