@@ -9,8 +9,9 @@ pipeline {
     stages {
         stage('Install and Test') {
             steps {
-                sh 'python -m pip install --user -r requirements.txt'
-                sh 'python -m pytest -q tests'
+                sh 'python3 -m venv .venv'
+                sh '.venv/bin/python -m pip install -r requirements.txt'
+                sh '.venv/bin/python -m pytest -q tests'
             }
         }
 
@@ -23,7 +24,13 @@ pipeline {
         stage('Container Smoke Test') {
             steps {
                 sh "docker run --detach --rm --name ${CONTAINER_NAME} --publish 5099:5000 ${IMAGE_NAME}:${BUILD_NUMBER}"
-                sh 'python -c "import time, urllib.request; time.sleep(5); assert urllib.request.urlopen(\"http://127.0.0.1:5099/healthz\").status == 200"'
+                sh '''for attempt in $(seq 1 20); do
+                    if python3 -c 'import urllib.request; assert urllib.request.urlopen("http://127.0.0.1:5099/healthz").status == 200'; then
+                        exit 0
+                    fi
+                    sleep 1
+                done
+                exit 1'''
             }
         }
     }
